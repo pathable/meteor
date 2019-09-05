@@ -40,6 +40,7 @@ import {
 } from "../fs/optimistic.js";
 
 import Resolver from "./resolver.js";
+import { isFileToLog } from "./debug-utils.js";
 
 const fakeFileStat = {
   isFile() {
@@ -124,12 +125,19 @@ function ensureLeadingSlash(path) {
   return posix;
 }
 
+const Status = {
+  NOT_IMPORTED: false,
+  DYNAMIC: 'dynamic',
+  STATIC: 'static',
+};
+
 // Files start with file.imported === false. As we scan the dependency
 // graph, a file can get promoted to "dynamic" or "static" to indicate
 // that it has been imported by other modules. The "dynamic" status trumps
 // false, and "static" trumps both "dynamic" and false. A file can never
 // be demoted to a lower status after it has been promoted.
-const importedStatusOrder = [false, "dynamic", "static"];
+const importedStatusOrder = [Status.NOT_IMPORTED, Status.DYNAMIC,
+  Status.STATIC];
 
 // Set each file.imported status to the maximum status of provided files.
 function alignImportedStatuses(...files) {
@@ -139,11 +147,34 @@ function alignImportedStatuses(...files) {
   files.forEach(file => file.imported = maxStatus);
 }
 
+function getParentStatusFromInfo(info) {
+  return info.some(entry => entry.parentWasDynamic) ? Status.DYNAMIC :
+    Status.STATIC;
+}
+
+function isHigherStatus(status1, status2,
+                        { callerName, context: {id} = {}} = {}) {
+  if(id && isFileToLog(id, {callerName: 'isHigherStatus'})) {
+    console.log('- isHigherStatus');
+    console.log('callerName', callerName);
+    console.log('id', id);
+    console.log('status1', status1);
+    console.log('status2', status2);
+  }
+  return importedStatusOrder.indexOf(status1) >
+    importedStatusOrder.indexOf(status2);
+}
+
 // Set file.imported to status if status has a higher index than the
 // current value of file.imported.
 function setImportedStatus(file, status) {
-  if (importedStatusOrder.indexOf(status) >
-      importedStatusOrder.indexOf(file.imported)) {
+  if(isFileToLog(file.sourcePath, {callerName: 'setImportedStatus'})) {
+    console.log('- setImportedStatus');
+    console.log('file.sourcePath', file.sourcePath, file.imported);
+    console.log('status', status);
+  }
+
+  if (isHigherStatus(status, file.imported)) {
     file.imported = status;
   }
 }
@@ -556,6 +587,11 @@ export default class ImportScanner {
         // so we can get away with calling this._scanFile at most twice,
         // with a representative importInfo object of each kind.
         missingModules[id].some(importInfo => {
+          if(isFileToLog(id, {callerName: 'scanMissingModules'})) {
+            console.log('- scanMissingModules');
+            console.log('id', id);
+            console.log('importInfo', importInfo);
+          }
           if (importInfo.parentWasDynamic ||
               importInfo.dynamic) {
             dynamicImportInfo = dynamicImportInfo || importInfo;
@@ -602,7 +638,22 @@ export default class ImportScanner {
       // newlyMissing and merge the new identifiers back into
       // this.allMissingModules.
       Object.keys(newlyMissing).forEach(id => {
-        if (has(previousAllMissingModules, id)) {
+
+        if(isFileToLog(id, {callerName: 'newlyMissing1'})) {
+          console.log('- newlyMissing');
+          console.log('id', id);
+        }
+        const dontNeedToScanAgain = has(previousAllMissingModules, id) &&
+          !isHigherStatus(getParentStatusFromInfo(newlyMissing[id]),
+            getParentStatusFromInfo(previousAllMissingModules[id]),
+            {callerName: 'dontNeedToScanAgain', context:{id}});
+        if(isFileToLog(id, {callerName: 'newlyMissing2'})) {
+          console.log('newlyMissing', newlyMissing[id]);
+          console.log('previousAllMissingModules', previousAllMissingModules &&
+            previousAllMissingModules[id]);
+          console.log('dontNeedToScanAgain', dontNeedToScanAgain);
+        }
+        if (dontNeedToScanAgain) {
           delete newlyMissing[id];
         } else {
           ImportScanner.mergeMissing(
@@ -804,7 +855,8 @@ export default class ImportScanner {
       // they can be handled by the loop above.
       const file = this._getFile(resolved.path);
       if (file && file.alias) {
-        setImportedStatus(file, forDynamicImport ? "dynamic" : "static");
+        setImportedStatus(file, forDynamicImport ? Status.DYNAMIC :
+          Status.STATIC);
         return file.alias;
       }
     }
@@ -836,14 +888,14 @@ export default class ImportScanner {
     }
 
     if (forDynamicImport &&
-        file.imported === "dynamic") {
+        file.imported === Status.DYNAMIC) {
       // If we've already scanned this file dynamically, then we don't
       // need to scan it dynamically again.
       return;
     }
 
     // Set file.imported to a truthy value (either "dynamic" or true).
-    setImportedStatus(file, forDynamicImport ? "dynamic" : "static");
+    setImportedStatus(file, forDynamicImport ? Status.DYNAMIC : Status.STATIC);
 
     if (file.reportPendingErrors &&
         file.reportPendingErrors() > 0) {
@@ -1253,6 +1305,15 @@ export default class ImportScanner {
 
   // Called by this.resolver when a module identifier cannot be resolved.
   _onMissing(parentFile, id, forDynamicImport = false) {
+
+    if(isFileToLog(id, {callerName: '_onMissing1'}) ||
+      isFileToLog(parentFile.sourcePath, {callerName: '_onMissing2'})) {
+      console.log('- _onMissing');
+      console.log('parentFile.sourcePath', parentFile.sourcePath,
+        parentFile.imported);
+      console.log('id', id);
+      console.log('forDynamicImport', forDynamicImport);
+    }
     const isApp = ! this.name;
     const absParentPath = pathJoin(
       this.sourceRoot,
@@ -1317,6 +1378,12 @@ export default class ImportScanner {
       parentFile.missingModules = missing;
     }
 
+    if(isFileToLog(id, {callerName: '_onMissing1'}) ||
+      isFileToLog(parentFile.sourcePath, {callerName: '_onMissing2'})) {
+      console.log('- _onMissing mergeMissing');
+      console.log('id', id);
+      console.log('info', info);
+    }
     ImportScanner.mergeMissing(
       this.allMissingModules,
       { [id]: [info] }
@@ -1329,7 +1396,8 @@ export default class ImportScanner {
     if (file) {
       // If the file already exists, just update file.imported according
       // to the forDynamicImport parameter.
-      setImportedStatus(file, forDynamicImport ? "dynamic" : "static");
+      setImportedStatus(file, forDynamicImport ? Status.DYNAMIC :
+        Status.STATIC);
       return file;
     }
 
@@ -1347,7 +1415,7 @@ export default class ImportScanner {
       servePath: stripLeadingSlash(absModuleId),
       hash: sha1(data),
       lazy: true,
-      imported: forDynamicImport ? "dynamic" : "static",
+      imported: forDynamicImport ? Status.DYNAMIC : Status.STATIC,
       // Since _addPkgJsonToOutput is only ever called for package.json
       // files that are involved in resolving package directories, and pkg
       // is only a subset of the information in the actual package.json
