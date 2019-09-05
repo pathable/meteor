@@ -148,8 +148,8 @@ function alignImportedStatuses(...files) {
 }
 
 function getParentStatusFromInfo(info) {
-  return info.some(entry => entry.parentWasDynamic) ? Status.DYNAMIC :
-    Status.STATIC;
+  return info.some(entry => !entry.parentWasDynamic) ? Status.STATIC :
+    Status.DYNAMIC;
 }
 
 function isHigherStatus(status1, status2,

@@ -1,5 +1,4 @@
-const FILES_TO_LOG = ['pluralize/index.js', 'meteor/pathable-vendor/pluralize',
-  'node_modules/pluralize'];
+const FILES_TO_LOG = ['meteor/pathable-ui/components/person/person'];
 
 export const isFileToLog = (file, {callerName, context} = {}) => {
   if (!file) {
