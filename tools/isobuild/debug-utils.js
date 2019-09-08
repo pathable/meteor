@@ -1,7 +1,7 @@
 const FILES_TO_LOG = [];
 
 export const isFileToLog = (file, {callerName, context} = {}) => {
-  if (FILES_TO_LOG) {
+  if (!FILES_TO_LOG.length) {
     return;
   }
 
