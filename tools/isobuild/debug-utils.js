@@ -1,6 +1,10 @@
-const FILES_TO_LOG = ['meteor/pathable-ui/components/person/person'];
+const FILES_TO_LOG = [];
 
 export const isFileToLog = (file, {callerName, context} = {}) => {
+  if (FILES_TO_LOG) {
+    return;
+  }
+
   if (!file) {
     console.log(callerName, ': file was undefined ', JSON.stringify(context));
     return;
